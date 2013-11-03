@@ -1,0 +1,317 @@
+#!/bin/sh
+
+# A basic configure script for LuaRocks.
+# Not doing any fancy shell stuff here to keep good compatibility.
+
+# Defaults
+
+PREFIX="/usr/local"
+SYSCONFDIR="$PREFIX/etc/tarantool/rocks"
+ROCKS_TREE="$PREFIX"
+LUA_DIR=""
+LUA_INCDIR="${PREFIX}/include"
+LUA_VERSION=5.1 # Always 5.1 for Tarantool
+LUAROCKS_ROCKS_SUBDIR=/share/tarantool/rocks
+MULTIARCH_SUBDIR=""
+LUA_ROCKS_SERVER="http://localhost/taranrocks/"
+
+# ----------------------------------------------------------------------------
+# FUNCTION DEFINITIONS
+# ----------------------------------------------------------------------------
+
+# Help
+
+show_help() {
+cat <<EOF
+Configure TaranRocks
+
+--help                      This help.
+--prefix=DIR                Prefix where TaranRocks should be installed.
+                            Default is $PREFIX
+--sysconfdir=DIR            Location where the config file should be installed.
+                            Default is \$PREFIX/etc/tarantool/rocks
+
+Where to install files installed by rocks, to make the accessible to Lua and
+your \$PATH. Beware of clashes between files installed by LuaRocks and by your
+system's package manager.
+
+--with-tarantool=DIR        Use Tarantool includes from given prefix.
+                            Default is \$PREFIX
+--with-downloader=TOOL      Which tool to use as a downloader.
+                            Valid options are: wget, curl.
+                            Default is to auto-detect.
+--with-md5-checker=TOOL     Which tool to use as a downloader.
+                            Valid options are: md5sum, openssl
+                            Default is to auto-detect.
+--force-config              Use a single config location. Do not use the
+                            \$LUAROCKS_CONFIG variable or the user's home
+                            directory. Useful to avoid conflicts when LuaRocks
+                            is embedded within an application.
+EOF
+}
+
+# Helper functions
+
+find_program() {
+   path="$PATH"
+   item="`echo "$path" | sed 's/\([^:]*\):.*/\1/'`"
+   path="`echo "$path" | sed -n 's/[^:]*::*\(.*\)/\1/p'`"
+   found="no"
+   while [ -n "$item" ]
+   do
+      if [ -f "$item/$1" ]
+      then
+         found="yes"\
+         break
+      fi
+      item="`echo "$path" | sed 's/\([^:]*\):.*/\1/'`"
+      path="`echo "$path" | sed -n 's/[^:]*::*\(.*\)/\1/p'`"
+   done
+   if [ "$found" = "yes" ]
+   then
+      echo "$item"
+   else
+      echo ""
+   fi
+}
+
+die() {
+   echo "$*"
+   echo
+   echo "configure failed."
+   echo
+   exit 1
+}
+
+find_helper() {
+   explanation="$1"
+   shift
+   tried="$*"
+   while [ -n "$1" ]
+   do
+      found=`find_program "$1"`
+      if [ -n "$found" ]
+      then
+         echo "$1 found at $found"
+         HELPER=$1
+         return
+      fi
+      shift
+   done
+   echo "Could not find a $explanation. Tried: $tried."
+   die "Make sure one of them is installed and available in your PATH."
+}
+
+case `echo -n x` in
+-n*) echo_n_flag='';;
+*)   echo_n_flag='-n';;
+esac
+
+echo_n() {
+   echo $echo_n_flag "$*"
+}
+
+# ----------------------------------------------------------------------------
+# MAIN PROGRAM
+# ----------------------------------------------------------------------------
+
+# Parse options
+
+while [ -n "$1" ]
+do
+   value="`echo $1 | sed 's/[^=]*.\(.*\)/\1/'`"
+   key="`echo $1 | sed 's/=.*//'`"
+   key=$1
+   value=$2
+   if `echo "$value" | grep "~" >/dev/null 2>/dev/null`
+   then
+      echo
+      echo '*WARNING*: the "~" sign is not expanded in flags.'
+      echo 'If you mean the home directory, use $HOME instead.'
+      echo
+   fi
+   case "$key" in
+   --help)
+      show_help
+      exit 0
+      ;;
+   --prefix)
+      [ -n "$value" ] || die "Missing value in flag $key."
+      PREFIX="$value"
+      PREFIX_SET=yes
+      ;;
+   --sysconfdir)
+      [ -n "$value" ] || die "Missing value in flag $key."
+      SYSCONFDIR="$value"
+      SYSCONFDIR_SET=yes
+      ;;
+   --force-config)
+      FORCE_CONFIG=yes
+      ;;
+   --with-tarantool)
+      [ -n "$value" ] || die "Missing value in flag $key."
+      LUA_DIR="$value"
+      LUA_DIR_SET=yes
+      ;;
+   --with-downloader)
+      [ -n "$value" ] || die "Missing value in flag $key."
+      case "$value" in
+      wget|curl) LUAROCKS_DOWNLOADER="$value" ;;
+      *) die "Invalid option: $value. See --help." ;;
+      esac
+      LUAROCKS_DOWNLOADER_SET=yes
+      ;;
+   --with-md5-checker)
+      [ -n "$value" ] || die "Missing value in flag $key."
+      case "$value" in
+      md5sum|openssl|md5) LUAROCKS_MD5CHECKER="$value" ;;
+      *) die "Invalid option: $value. See --help." ;;
+      esac
+      LUAROCKS_MD5CHECKER_SET=yes
+      ;;
+   *)
+      die "Error: Unknown flag: $1"
+      ;;
+   esac
+   shift
+   shift
+done
+
+if [ "$PREFIX_SET" = "yes" -a ! "$SYSCONFDIR_SET" = "yes" ]
+then
+   if [ "$PREFIX" = "/usr" ]
+   then SYSCONFDIR=/etc/tarantool/rocks
+   else SYSCONFDIR=$PREFIX/etc/tarantool/rocks
+   fi
+fi
+
+if [ "$PREFIX_SET" = "yes" -a ! "$ROCKS_TREE_SET" = "yes" ]
+then
+   ROCKS_TREE=$PREFIX
+fi
+
+echo_n "Checking Tarantool/Lua includes... "
+if [ "$LUA_DIR_SET" != "yes" ]; then
+    LUA_DIR="${PREFIX} /usr"
+fi
+
+LUA_INCDIR=""
+for lua_dir in ${LUA_DIR}; do
+    # Old version of Tarantool do not have own lua.h header.
+    # Fallback to system lua.h for this case.
+    suffixes="tarantool/lua
+    lua5.1 lua51 lua-5.1 lua/51 lua5.2 lua52 lua-5.2 lua/52 lua"
+
+    for suffix in ${suffixes}; do
+        v_dir="${lua_dir}/include/${suffix}"
+        lua_h="$v_dir/lua.h"
+        if [ -f "$lua_h" ]; then
+            echo "lua.h found in $lua_h"
+            LUA_INCDIR="$v_dir"
+            LUA_DIR="$lua_dir"
+            break
+        fi
+    done
+done
+
+if [ -z "${LUA_INCDIR}" ]; then
+    echo "lua.h not found (looked in $LUA_INCDIR_HINT)"
+    die "You may want to use the flag --with-tarantool. See --help."
+fi
+
+if [ "$LUAROCKS_DOWNLOADER_SET" != "yes" ]
+then
+   find_helper "downloader helper program" wget curl fetch
+   LUAROCKS_DOWNLOADER=$HELPER
+fi
+
+if [ "$LUAROCKS_MD5CHECKER_SET" != "yes" ]
+then
+   find_helper "MD5 checksum calculator" md5sum openssl md5
+   LUAROCKS_MD5CHECKER=$HELPER
+fi
+
+echo_n "Configuring for system... "
+if uname -s
+then
+   LUAROCKS_UNAME_S=`uname -s`
+else
+   die "Could not determine operating system. 'uname -s' failed."
+fi
+echo_n "Configuring for architecture... "
+if uname -m
+then
+   LUAROCKS_UNAME_M=`uname -m`
+else
+   die "Could not determine processor architecture. 'uname -m' failed."
+fi
+
+if [ "$LUAROCKS_UNAME_S" = Linux ]
+then
+   GCC_ARCH=`gcc -print-multiarch 2>/dev/null`
+   if [ -n "$GCC_ARCH" -a -d "/usr/lib/$GCC_ARCH" ]
+   then
+      MULTIARCH_SUBDIR="lib/$GCC_ARCH"
+   fi
+fi
+
+if [ -f config.unix ]; then
+   rm -f config.unix
+fi
+
+# Write config
+
+echo "Writing configuration..."
+echo
+
+rm -f built
+cat <<EOF > config.mk
+# This file was automatically generated by the configure script.
+# Run "./configure --help" for details.
+
+PREFIX=${PREFIX}
+BIN_DIR=${PREFIX}/bin
+LUA_MODULES_PATH=${PREFIX}/share/tarantool/lua
+SYSCONFDIR=$SYSCONFDIR
+EOF
+
+cat <<EOF > "site_config.lua"
+-- This file was automatically generated by the configure script.
+-- Run "./configure --help" for details.
+
+module("luarocks.site_config")
+LUAROCKS_PREFIX=[[${PREFIX}]]
+LUA_INCDIR=[[${LUA_INCDIR}]]
+LUA_LIBDIR=[[${LUA_DIR}/lib]]
+LUA_BINDIR=[[${LUA_DIR}/bin]]
+LUA_DIR_SET=true
+LUA_INTERPRETER=[[${PREFIX}/bin/taranscript]]
+LUAROCKS_SYSCONFDIR=[[${SYSCONFDIR}]]
+LUAROCKS_ROCKS_TREE=[[${PREFIX}]]
+LUAROCKS_ROCKS_SUBDIR=[[${LUAROCKS_ROCKS_SUBDIR}]]
+LUAROCKS_UNAME_S=[[${LUAROCKS_UNAME_S}]]
+LUAROCKS_UNAME_M=[[${LUAROCKS_UNAME_M}]]
+LUAROCKS_DOWNLOADER=[[${LUAROCKS_DOWNLOADER}]]
+LUAROCKS_MD5CHECKER=[[${LUAROCKS_MD5CHECKER}]]
+LUAROCKS_EXTERNAL_DEPS_SUBDIRS={ bin="bin", lib={ "lib", [[${MULTIARCH_SUBDIR}]] }, include="include" }
+LUAROCKS_RUNTIME_EXTERNAL_DEPS_SUBDIRS={ bin="bin", lib={ "lib", [[${MULTIARCH_SUBDIR}]] }, include="include" }
+
+LUA_MODULES_PATH=[[/share/tarantool/lua]]
+LIB_MODULES_PATH=[[/lib/tarantool/lua]]
+LUA_ROCKS_SERVER=[[http://localhost/tararocks]]
+EOF
+
+cat <<EOF > "config.lua.example"
+rocks_servers = {
+    [[${LUA_ROCKS_SERVER}]]
+}
+EOF
+
+echo "Installation prefix: $PREFIX"
+echo "TaranRocks configuration directory: $SYSCONFDIR"
+echo "Using Tarantool/Lua from: $LUA_DIR"
+
+echo
+echo "Done configuring."
+echo "Type 'make install' to install TaranRocks to $PREFIX as usual."
+echo

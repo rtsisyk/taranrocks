@@ -1,0 +1,76 @@
+#!/bin/sh
+#
+# A simple shell script to use tarantool_box as an advanced Lua interpreter
+#
+
+PREFIX=$(dirname $(dirname $(readlink -f $0)))
+
+if test -z "$1"; then
+    echo "Usage $0 filename.lua" 1>&2
+    exit 1
+fi
+
+FILE=$1
+
+# Save current directory
+WORK_DIR=$(readlink -f .)
+
+# Create a temporary directory for for Tarantool files
+TARANTOOL_DIR=$(mktemp -d)
+
+cd ${TARANTOOL_DIR}
+CFG=${TARANTOOL_DIR}/tarantool.cfg
+INIT_LUA=${TARANTOOL_DIR}/init.lua
+LOGGER="${TARANTOOL_DIR}/logger.sh"
+LOG="${TARANTOOL_DIR}/tarantool.log"
+
+# Create logger
+cat > "${LOGGER}" << EOF
+tee "${LOG}" | \
+    grep -E -v '\s+\[[[:digit:]]*\]\s[[:digit:]]+/.* [[:upper:]]>\s'
+EOF
+
+# Create configuration
+cat > "${CFG}" <<EOF
+slab_alloc_arena = 0.1
+pid_file = "box.pid"
+logger="/bin/sh ${LOGGER}"
+primary_port = 34013
+secondary_port = 34014
+admin_port = 34015
+wal_mode = none
+script_dir = "${TARANTOOL_DIR}"
+EOF
+
+# Save command-line arguments
+ARGS="arg = {"
+for var in "$@"; do
+    ARGS="${ARGS} [[${var}]],"
+done
+ARGS="${ARGS} nil}"
+
+# Create init.lua
+cat > "${INIT_LUA}" <<EOF
+-- Update package.path for old Tarantool versions
+package.path = [[${PREFIX}]] .. [[/share/tarantool/lua/?.lua]] .. ";" ..
+    package.path
+package.cpath = [[${PREFIX}]] .. [[/lib/tarantool/lua/?.lua]] .. ";" ..
+    package.cpath
+${ARGS}
+local ffi = require("ffi")
+ffi.cdef([[
+int chdir(const char *path);
+]])
+ffi.C.chdir([[${WORK_DIR}]])
+dofile([[${FILE}]])
+os.exit(0)
+EOF
+
+# Run tarantool_box
+tarantool_box -c "${CFG}"
+ret=$?
+if test ${ret} -ne 0; then
+    # On an error display the log file 
+    cat ${LOG}
+fi
+exit ${ret}
