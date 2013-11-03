@@ -195,6 +195,7 @@ if [ "$LUA_DIR_SET" != "yes" ]; then
     LUA_DIR="${PREFIX} /usr"
 fi
 
+LUA_INCDIR_HINT=""
 LUA_INCDIR=""
 for lua_dir in ${LUA_DIR}; do
     # Old version of Tarantool do not have own lua.h header.
@@ -204,6 +205,7 @@ for lua_dir in ${LUA_DIR}; do
 
     for suffix in ${suffixes}; do
         v_dir="${lua_dir}/include/${suffix}"
+        LUA_INCDIR_HINT="${LUA_INCDIR_HINT} ${v_dir}"
         lua_h="$v_dir/lua.h"
         if [ -f "$lua_h" ]; then
             echo "lua.h found in $lua_h"
