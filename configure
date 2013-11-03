@@ -13,7 +13,7 @@ LUA_INCDIR="${PREFIX}/include"
 LUA_VERSION=5.1 # Always 5.1 for Tarantool
 LUAROCKS_ROCKS_SUBDIR=/share/tarantool/rocks
 MULTIARCH_SUBDIR=""
-LUA_ROCKS_SERVER="http://localhost/taranrocks/"
+LUA_ROCKS_SERVER="https://raw.github.com/rtsisyk/taranrocks-repo/master/"
 
 # ----------------------------------------------------------------------------
 # FUNCTION DEFINITIONS
@@ -300,7 +300,7 @@ LUAROCKS_RUNTIME_EXTERNAL_DEPS_SUBDIRS={ bin="bin", lib={ "lib", [[${MULTIARCH_S
 
 LUA_MODULES_PATH=[[/share/tarantool/lua]]
 LIB_MODULES_PATH=[[/lib/tarantool/lua]]
-LUA_ROCKS_SERVER=[[http://localhost/tararocks]]
+LUA_ROCKS_SERVER=[[${LUA_ROCKS_SERVER}]]
 EOF
 
 cat <<EOF > "config.lua.example"
