@@ -3,7 +3,7 @@
 # A simple shell script to use tarantool_box as an advanced Lua interpreter
 #
 
-PREFIX=$(dirname $(dirname $(readlink -f $0)))
+TARANTOOL_BOX=tarantool_box
 
 if test -z "$1"; then
     echo "Usage $0 filename.lua" 1>&2
@@ -11,6 +11,13 @@ if test -z "$1"; then
 fi
 
 FILE=$1
+
+TARANTOOL_VERSION=$(${TARANTOOL_BOX} --version | head -n 1 | cut -d ' ' -f 2)
+version_ge() {
+    [ "$(printf $1\\n$2 | sort -n | head -n 1)" = "$2" ]
+}
+
+PREFIX=$(dirname $(dirname $(readlink -f $0)))
 
 # Save current directory
 WORK_DIR=$(readlink -f .)
@@ -42,6 +49,16 @@ wal_mode = none
 script_dir = "${TARANTOOL_DIR}"
 EOF
 
+if ! version_ge "${TARANTOOL_VERSION}" "1.6"; then
+    cat >> "${CFG}" <<EOF
+    space[0].enabled = 1
+    space[0].index[0].type = "HASH"
+    space[0].index[0].unique = 1
+    space[0].index[0].key_field[0].fieldno = 0
+    space[0].index[0].key_field[0].type = "NUM"
+EOF
+fi
+
 # Save command-line arguments
 ARGS="arg = {"
 for var in "$@"; do
@@ -67,10 +84,15 @@ os.exit(0)
 EOF
 
 # Run tarantool_box
-tarantool_box -c "${CFG}"
+if ! version_ge "${TARANTOOL_VERSION}" "1.6"; then
+    ${TARANTOOL_BOX} -c "${CFG}" --init-storage 1> /dev/null 2> /dev/null
+fi
+${TARANTOOL_BOX} -c "${CFG}"
 ret=$?
 if test ${ret} -ne 0; then
-    # On an error display the log file 
-    cat ${LOG}
+    # Display the log file on an error
+    ls ${TARANTOOL_DIR} > /dev/null # a workaround on strange tmpfs behaviour
+    cat "${LOG}"
 fi
+rm -rf "${TARANTOOL_DIR}"
 exit ${ret}
