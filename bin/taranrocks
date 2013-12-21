@@ -19,7 +19,7 @@ local ffi = require("ffi")
 ffi.cdef([[
 int setenv(const char *name, const char *value, int overwrite)
 ]])
-local home_config_dir = os.getenv("HOME").. "/".. ".taranrocks"
+local home_config_dir = os.getenv("HOME").. "/".. ".tarantool/rocks"
 local home_config_file = home_config_dir .. "/" .. "config.lua"
 ffi.C.setenv("LUAROCKS_CONFIG", home_config_file, 1)
 
@@ -50,22 +50,12 @@ assert(cfg.home_tree ~= nil)
 cfg.home_tree = string.gsub(cfg.home_tree, "luarocks", "tarantool")
 
 -- Override lua_modules_path and lib_modules_path
-cfg.lua_modules_path = "/share/tarantool/lua"
-cfg.lib_modules_path = "/lib/tarantool/lua"
+cfg.lua_modules_path = site_config.LUA_MODULES_PATH
+cfg.lib_modules_path = site_config.LIB_MODULES_PATH
 
 -- Override built-in dependecies
-local BUILTIN_DEPS = {
-    tarantool = box.info.version:match("(%d%.%d%.%d)"),
-    luajit = jit.version:match("LuaJIT (%d%.%d%.%d)")
-}
-
-local manif_core = require("luarocks.manif_core")
-local get_versions_base = manif_core.get_versions
-manif_core.get_versions = function(name, deps_mode)
-    local version = BUILTIN_DEPS[name]
-    if version then return {version} end
-    return get_versions_base(name, deps_mode)
-end
+cfg.rocks_provided.tarantool = box.info.version:match("(%d%.%d%.%d)")
+cfg.rocks_provided.luajit = jit.version:match("LuaJIT (%d%.%d%.%d)")
 
 -- Override versions
 cfg.program_version = cfg.program_version .. " on Tarantool "..box.info.version
