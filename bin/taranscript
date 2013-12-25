@@ -17,7 +17,8 @@ version_ge() {
     [ "$(printf $1\\n$2 | sort -n | head -n 1)" = "$2" ]
 }
 
-PREFIX=$(dirname $(dirname $(readlink -f $0)))
+PREFIX=/usr/local
+#$(dirname $(dirname $(readlink -f $0)))
 
 # Save current directory
 WORK_DIR=$(readlink -f .)
@@ -46,7 +47,6 @@ primary_port = 34013
 secondary_port = 34014
 admin_port = 34015
 wal_mode = none
-script_dir = "${TARANTOOL_DIR}"
 EOF
 
 if ! version_ge "${TARANTOOL_VERSION}" "1.6"; then
@@ -60,11 +60,12 @@ EOF
 fi
 
 # Save command-line arguments
-ARGS="arg = {"
+ARGS="arg = { [0] = [[$1]];"
+shift
 for var in "$@"; do
-    ARGS="${ARGS} [[${var}]],"
+    ARGS="${ARGS} [[${var}]];"
 done
-ARGS="${ARGS} nil}"
+ARGS="${ARGS}}"
 
 # Create init.lua
 cat > "${INIT_LUA}" <<EOF
@@ -79,7 +80,7 @@ ffi.cdef([[
 int chdir(const char *path);
 ]])
 ffi.C.chdir([[${WORK_DIR}]])
-dofile([[${FILE}]])
+dofile(arg[0])
 os.exit(0)
 EOF
 
@@ -96,3 +97,4 @@ if test ${ret} -ne 0; then
 fi
 rm -rf "${TARANTOOL_DIR}"
 exit ${ret}
+ 

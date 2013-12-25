@@ -1,0 +1,84 @@
+diff --git a/src/bin/luarocks b/src/bin/luarocks
+index 6ab27fa..d3f8886 100755
+--- a/src/bin/luarocks
++++ b/src/bin/luarocks
+@@ -1,4 +1,12 @@
+-#!/usr/bin/env lua
++#!/usr/bin/env taranscript
++
++if not require("luarocks.site_config").TARANTOOL then
++    io.stderr:write("Invalid taranrocks installation", "\n")
++    os.exit(1)
++end
++
++package.loaded.box = package.loaded.box or box
++require('luarocks.util').this_program = function(default) return arg[0] end
+ 
+ local loader = require("luarocks.loader")
+ local command_line = require("luarocks.command_line")
+@@ -23,4 +31,4 @@ commands.lint = require("luarocks.lint")
+ commands.write_rockspec = require("luarocks.write_rockspec")
+ commands.purge = require("luarocks.purge")
+ 
+-command_line.run_command(...)
++command_line.run_command(unpack(arg))
+diff --git a/src/luarocks/cfg.lua b/src/luarocks/cfg.lua
+index 2904146..109d38d 100644
+--- a/src/luarocks/cfg.lua
++++ b/src/luarocks/cfg.lua
+@@ -108,6 +108,7 @@ local sys_config_dir, home_config_dir
+ local sys_config_ok, home_config_ok = false, false
+ local extra_luarocks_module_dir
+ sys_config_dir = site_config.LUAROCKS_SYSCONFDIR
++home_config_dir = site_config.LUAROCKS_HOMECONFDIR
+ if detected.windows then
+    home = os.getenv("APPDATA") or "c:"
+    sys_config_dir = sys_config_dir or "c:/luarocks"
+@@ -116,8 +117,8 @@ if detected.windows then
+ else
+    home = os.getenv("HOME") or ""
+    sys_config_dir = sys_config_dir or "/etc/luarocks"
+-   home_config_dir = home.."/.luarocks"
+-   home_tree = home.."/.luarocks/"
++   home_config_dir = home..(home_config_dir or "/.config/luarocks")
++   home_tree = home.."/.local"
+ end
+ 
+ variables = {}
+@@ -187,15 +188,15 @@ local defaults = {
+    hooks_enabled = true,
+    deps_mode = "one",
+ 
+-   lua_modules_path = "/share/lua/"..lua_version,
+-   lib_modules_path = "/lib/lua/"..lua_version,
++   lua_modules_path = site_config.LUA_MODULES_SUBDIR or "/share/lua/"..lua_version,
++   lib_modules_path = site_config.LIB_MODULES_SUBDIR or "/lib/lua/"..lua_version,
+    rocks_subdir = site_config.LUAROCKS_ROCKS_SUBDIR or "/lib/luarocks/rocks",
+ 
+    arch = "unknown",
+    lib_extension = "unknown",
+    obj_extension = "unknown",
+ 
+-   rocks_servers = {
++   rocks_servers = site_config.LUAROCKS_ROCKS_SERVERS or {
+       {
+         "http://www.luarocks.org/repositories/rocks",
+         "http://luarocks.giga.puc-rio.br/",
+@@ -466,10 +467,16 @@ end
+ if package.loaded.jit then
+    -- LuaJIT
+    local lj_version = package.loaded.jit.version:match("LuaJIT (.*)"):gsub("%-","")
+-   --defaults.rocks_provided["luajit"] = lj_version.."-1"
++   defaults.rocks_provided["luajit"] = lj_version.."-1"
+    defaults.rocks_provided["luabitop"] = lj_version.."-1"
+ end
+ 
++if package.loaded.box then
++    -- Tarantool
++    local tnt_version = package.loaded.box.info.version:match("(%d%.%d%.%d)")
++    defaults.rocks_provided.tarantool = tnt_version.."-1"
++end
++
+ -- Use defaults:
+ 
+ -- Populate some arrays with values from their 'defaults' counterparts
